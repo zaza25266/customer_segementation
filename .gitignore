@@ -1,4 +1,47 @@
-.venv/
-.vscode/
+
 test.ipynb
 test.py
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# ML artifacts
+mlruns/
+mlartifacts/
+models/
+*.pkl
+*.joblib
+
+# Local data
+data/raw/*
+data/processed/*
+
+# Keep directory structure
+!data/raw/.gitkeep
+!data/processed/.gitkeep
