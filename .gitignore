@@ -1,5 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments
 .venv/
+venv/
+env/
+ENV/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# IDE
 .vscode/
-test.ipynb
-test.py
-data/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# DVC
+.dvc/cache/
+
+# Raw / large datasets
+data/raw/*
+!data/raw/.gitkeep
+
+
+# Model artifacts
+models/*.joblib
+models/*.pkl
+models/*.pickle
+
+# Generated artifacts
+artifacts/metrics/*
+artifacts/plots/*
+artifacts/reports/*
+
+# Temporary files
+*.tmp
+*.log
+
+# Hugging Face cache
+.cache/
