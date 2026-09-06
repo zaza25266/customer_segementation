@@ -93,7 +93,7 @@ def validate_raw_data(
     if missing_columns:
 
         raise ValueError(
-            "Uploaded file is missing required "
+            "Uploaded data is missing required "
             f"columns: {missing_columns}"
         )
 
@@ -103,7 +103,6 @@ def validate_raw_data(
 def prepare_customer_features(
     raw_data: pd.DataFrame,
 ):
-
     validate_raw_data(raw_data)
 
     cleaned_data = clean_transactions(
@@ -126,8 +125,7 @@ def prepare_customer_features(
     if customer_features.empty:
 
         raise ValueError(
-            "No customer records were created "
-            "from the uploaded data."
+            "No customer features could be generated."
         )
 
     return (
@@ -155,8 +153,8 @@ def predict_customers(
     if missing_features:
 
         raise ValueError(
-            "Required model features were not "
-            f"generated: {missing_features}"
+            "Required model features were not generated: "
+            f"{missing_features}"
         )
 
     prediction_input = (
@@ -208,8 +206,8 @@ st.markdown(
     """
     ### Customer Segmentation from Transaction Data
 
-    Upload raw transaction-level data using the
-    expected company data format.
+    Use either **manual transaction entry** for one
+    customer or **CSV upload** for multiple customers.
 
     The application automatically performs:
 
@@ -219,7 +217,7 @@ st.markdown(
 )
 
 
-# Load model and metadata -----------------------------
+# Load model ------------------------------------------
 
 try:
 
@@ -287,165 +285,223 @@ for feature in metadata.get(
     )
 
 
-# File upload -----------------------------------------
+# Prediction mode -------------------------------------
 
 st.header(
-    "Upload Transaction Data"
+    "Prediction Mode"
 )
 
-st.write(
-    "Upload a CSV containing raw transaction-level "
-    "data. Customer-level features will be generated "
-    "automatically."
+prediction_mode = st.radio(
+    "Choose how to provide transaction data:",
+    [
+        "Manual Customer",
+        "Upload CSV",
+    ],
+    horizontal=True,
 )
 
-uploaded_file = st.file_uploader(
-    "Upload CSV",
-    type=["csv"],
-)
 
+# Manual customer mode --------------------------------
 
-# Process uploaded data -------------------------------
+if prediction_mode == "Manual Customer":
 
-if uploaded_file is not None:
+    st.subheader(
+        "Manual Customer Transaction History"
+    )
 
-    try:
+    st.write(
+        "Enter the customer's raw transaction history. "
+        "The application will calculate the customer-level "
+        "features automatically."
+    )
 
-        raw_data = pd.read_csv(
-            uploaded_file
-        )
+    customer_id = st.number_input(
+        "Customer ID",
+        min_value=1,
+        value=10001,
+        step=1,
+    )
 
-        validate_raw_data(
-            raw_data
-        )
+    reference_date = st.date_input(
+        "Analysis Reference Date",
+        value=pd.Timestamp.today().date(),
+        help=(
+            "Recency is calculated as the number of days "
+            "between this date and the customer's most "
+            "recent purchase."
+        ),
+    )
 
-        # Raw data preview ---------------------------
+    st.write(
+        "Add the customer's transactions below."
+    )
 
-        st.subheader(
-            "Uploaded Data"
-        )
+    manual_transactions = pd.DataFrame(
+        {
+            "Invoice": [
+                "10001",
+                "10002",
+                "10003",
+            ],
+            "StockCode": [
+                "85123A",
+                "71053",
+                "84406B",
+            ],
+            "Description": [
+                "Product A",
+                "Product B",
+                "Product C",
+            ],
+            "Quantity": [
+                2,
+                5,
+                3,
+            ],
+            "InvoiceDate": [
+                "2026-08-01",
+                "2026-08-15",
+                "2026-08-25",
+            ],
+            "Price": [
+                10.0,
+                15.0,
+                20.0,
+            ],
+            "Country": [
+                "United Kingdom",
+                "United Kingdom",
+                "United Kingdom",
+            ],
+        }
+    )
 
-        raw_col1, raw_col2 = st.columns(2)
+    edited_transactions = st.data_editor(
+        manual_transactions,
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Invoice": st.column_config.TextColumn(
+                "Invoice"
+            ),
+            "StockCode": st.column_config.TextColumn(
+                "StockCode"
+            ),
+            "Description": st.column_config.TextColumn(
+                "Description"
+            ),
+            "Quantity": st.column_config.NumberColumn(
+                "Quantity",
+                min_value=1,
+                step=1,
+            ),
+            "InvoiceDate": st.column_config.TextColumn(
+                "InvoiceDate"
+            ),
+            "Price": st.column_config.NumberColumn(
+                "Price",
+                min_value=0.01,
+                step=0.01,
+            ),
+            "Country": st.column_config.TextColumn(
+                "Country"
+            ),
+        },
+    )
 
-        with raw_col1:
+    if st.button(
+        "Predict Customer Segment",
+        type="primary",
+        use_container_width=True,
+    ):
 
-            st.metric(
-                "Raw Transactions",
-                f"{len(raw_data):,}",
+        try:
+
+            manual_data = (
+                edited_transactions.copy()
             )
 
-        with raw_col2:
+            manual_data[
+                "Customer ID"
+            ] = customer_id
 
-            st.metric(
-                "Raw Columns",
-                f"{len(raw_data.columns):,}",
+            manual_data[
+                "InvoiceDate"
+            ] = pd.to_datetime(
+                manual_data[
+                    "InvoiceDate"
+                ],
+                errors="raise",
             )
 
-        with st.expander(
-            "Preview Raw Transaction Data"
-        ):
-
-            st.dataframe(
-                raw_data.head(20),
-                hide_index=True,
-                use_container_width=True,
+            reference_timestamp = (
+                pd.Timestamp(
+                    reference_date
+                )
             )
 
-
-        # Cleaning and feature engineering -----------
-
-        with st.spinner(
-            "Cleaning transactions and generating "
-            "customer features..."
-        ):
-
-            (
-                cleaned_data,
-                customer_features,
-            ) = prepare_customer_features(
-                raw_data
-            )
-
-
-        st.success(
-            "Transaction preprocessing completed."
-        )
-
-
-        # Data summary -------------------------------
-
-        st.subheader(
-            "Data Summary"
-        )
-
-        summary_col1, summary_col2 = (
-            st.columns(2)
-        )
-
-        with summary_col1:
-
-            st.metric(
-                "Valid Transactions",
-                f"{len(cleaned_data):,}",
-            )
-
-        with summary_col2:
-
-            st.metric(
-                "Customers",
-                f"{len(customer_features):,}",
-            )
-
-
-        # Prediction ---------------------------------
-
-        if st.button(
-            "Predict Customer Segments",
-            type="primary",
-            use_container_width=True,
-        ):
-
-            with st.spinner(
-                "Predicting customer segments..."
+            if (
+                manual_data[
+                    "InvoiceDate"
+                ].max()
+                >= reference_timestamp
             ):
 
-                predictions = predict_customers(
-                    model=model,
-                    metadata=metadata,
-                    customer_features=(
-                        customer_features
-                    ),
+                raise ValueError(
+                    "Analysis Reference Date must be "
+                    "after the customer's latest "
+                    "transaction date."
                 )
 
+            validate_raw_data(
+                manual_data
+            )
+
+            cleaned_data = clean_transactions(
+                manual_data
+            )
+
+            if cleaned_data.empty:
+
+                raise ValueError(
+                    "No valid transactions remain "
+                    "after cleaning."
+                )
+
+            customer_features = (
+                aggregate_customer_features(
+                    cleaned_data
+                )
+            )
+
+            # Recalculate Recency using the selected
+            # analysis reference date ----------------
+
+            latest_purchase = (
+                cleaned_data[
+                    "InvoiceDate"
+                ].max()
+            )
+
+            customer_features[
+                "Recency"
+            ] = (
+                reference_timestamp
+                - latest_purchase
+            ).days
+
+            predictions = predict_customers(
+                model=model,
+                metadata=metadata,
+                customer_features=(
+                    customer_features
+                ),
+            )
 
             st.success(
                 "Customer segmentation completed."
             )
-
-
-            # Segment distribution ------------------
-
-            st.subheader(
-                "Segment Distribution"
-            )
-
-            segment_counts = (
-                predictions[
-                    "Segment"
-                ]
-                .value_counts()
-                .rename(
-                    "Customers"
-                )
-                .reset_index()
-            )
-
-            st.dataframe(
-                segment_counts,
-                hide_index=True,
-                use_container_width=True,
-            )
-
 
             # Generated features --------------------
 
@@ -454,13 +510,12 @@ if uploaded_file is not None:
             )
 
             st.write(
-                "These features were automatically "
-                "created from the uploaded raw "
-                "transaction data and used by the "
-                "model for prediction."
+                "These features were calculated "
+                "automatically from the transaction "
+                "history."
             )
 
-            generated_feature_columns = [
+            generated_columns = [
                 "Customer ID",
                 "Recency",
                 "Frequency",
@@ -472,95 +527,48 @@ if uploaded_file is not None:
 
             st.dataframe(
                 predictions[
-                    generated_feature_columns
+                    generated_columns
                 ],
                 hide_index=True,
                 use_container_width=True,
             )
 
-
-            # Prediction results --------------------
-
-            st.subheader(
-                "Prediction Results"
-            )
-
-            result_columns = [
-                "Customer ID",
-                "Recency",
-                "Frequency",
-                "Monetary",
-                "Total_Quantity",
-                "Unique_Products",
-                "Average_Order_Value",
-                "Cluster",
-                "Segment",
-            ]
-
-            st.dataframe(
-                predictions[
-                    result_columns
-                ],
-                hide_index=True,
-                use_container_width=True,
-            )
-
-
-            # Segment metrics -----------------------
+            # Prediction ----------------------------
 
             st.subheader(
-                "Business Segments"
+                "Prediction"
             )
 
-            active_count = int(
-                (
-                    predictions["Segment"]
-                    == "Active / High-Value Customers"
-                ).sum()
-            )
-
-            inactive_count = int(
-                (
-                    predictions["Segment"]
-                    == "Inactive / Low-Value Customers"
-                ).sum()
-            )
-
-            segment_col1, segment_col2 = (
+            result_col1, result_col2 = (
                 st.columns(2)
             )
 
-            with segment_col1:
+            with result_col1:
 
                 st.metric(
-                    "Active / High-Value Customers",
-                    f"{active_count:,}",
+                    "Cluster",
+                    int(
+                        predictions[
+                            "Cluster"
+                        ].iloc[0]
+                    ),
                 )
 
-                st.write(
-                    "Customers with stronger recent "
-                    "activity and higher purchasing "
-                    "value."
-                )
-
-            with segment_col2:
+            with result_col2:
 
                 st.metric(
-                    "Inactive / Low-Value Customers",
-                    f"{inactive_count:,}",
+                    "Customer Segment",
+                    predictions[
+                        "Segment"
+                    ].iloc[0],
                 )
 
-                st.write(
-                    "Customers with lower purchasing "
-                    "activity and value."
-                )
-
-
-            # Download results ----------------------
-
-            st.subheader(
-                "Download Results"
+            st.success(
+                "Customer belongs to: "
+                f"**{predictions['Segment'].iloc[0]}**"
             )
+
+            # Download --------------------------------
 
             csv_data = (
                 predictions.to_csv(
@@ -571,32 +579,309 @@ if uploaded_file is not None:
 
             st.download_button(
                 label=(
-                    "Download Segmentation Results"
+                    "Download Customer Result"
                 ),
                 data=csv_data,
                 file_name=(
-                    "customer_segmentation_results.csv"
+                    "customer_segmentation_result.csv"
                 ),
                 mime="text/csv",
                 use_container_width=True,
             )
 
+        except Exception as exc:
 
-    except Exception as exc:
+            st.error(
+                "Failed to process the customer data."
+            )
 
-        st.error(
-            "Failed to process the uploaded data."
-        )
+            st.exception(exc)
 
-        st.exception(exc)
 
+# CSV mode --------------------------------------------
 
 else:
 
-    st.info(
-        "Upload a CSV file containing raw "
-        "transaction data to begin."
+    st.subheader(
+        "Upload Transaction Data"
     )
+
+    st.write(
+        "Upload a CSV containing raw transaction-level "
+        "data. Customer-level features will be generated "
+        "automatically for every customer."
+    )
+
+    uploaded_file = st.file_uploader(
+        "Upload CSV",
+        type=["csv"],
+    )
+
+    if uploaded_file is not None:
+
+        try:
+
+            raw_data = pd.read_csv(
+                uploaded_file
+            )
+
+            validate_raw_data(
+                raw_data
+            )
+
+            # Raw data preview ----------------------
+
+            st.subheader(
+                "Uploaded Data"
+            )
+
+            raw_col1, raw_col2 = (
+                st.columns(2)
+            )
+
+            with raw_col1:
+
+                st.metric(
+                    "Raw Transactions",
+                    f"{len(raw_data):,}",
+                )
+
+            with raw_col2:
+
+                st.metric(
+                    "Raw Columns",
+                    f"{len(raw_data.columns):,}",
+                )
+
+            with st.expander(
+                "Preview Raw Transaction Data"
+            ):
+
+                st.dataframe(
+                    raw_data.head(20),
+                    hide_index=True,
+                    use_container_width=True,
+                )
+
+            # Cleaning and feature engineering ------
+
+            with st.spinner(
+                "Cleaning transactions and generating "
+                "customer features..."
+            ):
+
+                (
+                    cleaned_data,
+                    customer_features,
+                ) = prepare_customer_features(
+                    raw_data
+                )
+
+            st.success(
+                "Transaction preprocessing completed."
+            )
+
+            # Data summary --------------------------
+
+            st.subheader(
+                "Data Summary"
+            )
+
+            summary_col1, summary_col2 = (
+                st.columns(2)
+            )
+
+            with summary_col1:
+
+                st.metric(
+                    "Valid Transactions",
+                    f"{len(cleaned_data):,}",
+                )
+
+            with summary_col2:
+
+                st.metric(
+                    "Customers",
+                    f"{len(customer_features):,}",
+                )
+
+            # Prediction ----------------------------
+
+            if st.button(
+                "Predict Customer Segments",
+                type="primary",
+                use_container_width=True,
+            ):
+
+                with st.spinner(
+                    "Predicting customer segments..."
+                ):
+
+                    predictions = predict_customers(
+                        model=model,
+                        metadata=metadata,
+                        customer_features=(
+                            customer_features
+                        ),
+                    )
+
+                st.success(
+                    "Customer segmentation completed."
+                )
+
+                # Segment distribution ---------------
+
+                st.subheader(
+                    "Segment Distribution"
+                )
+
+                segment_counts = (
+                    predictions[
+                        "Segment"
+                    ]
+                    .value_counts()
+                    .rename(
+                        "Customers"
+                    )
+                    .reset_index()
+                )
+
+                st.dataframe(
+                    segment_counts,
+                    hide_index=True,
+                    use_container_width=True,
+                )
+
+                # Generated features -----------------
+
+                st.subheader(
+                    "Generated Customer Features"
+                )
+
+                st.write(
+                    "These features were automatically "
+                    "created from the uploaded raw "
+                    "transaction data."
+                )
+
+                generated_columns = [
+                    "Customer ID",
+                    "Recency",
+                    "Frequency",
+                    "Monetary",
+                    "Total_Quantity",
+                    "Unique_Products",
+                    "Average_Order_Value",
+                ]
+
+                st.dataframe(
+                    predictions[
+                        generated_columns
+                    ],
+                    hide_index=True,
+                    use_container_width=True,
+                )
+
+                # Prediction results ----------------
+
+                st.subheader(
+                    "Prediction Results"
+                )
+
+                result_columns = [
+                    "Customer ID",
+                    "Recency",
+                    "Frequency",
+                    "Monetary",
+                    "Total_Quantity",
+                    "Unique_Products",
+                    "Average_Order_Value",
+                    "Cluster",
+                    "Segment",
+                ]
+
+                st.dataframe(
+                    predictions[
+                        result_columns
+                    ],
+                    hide_index=True,
+                    use_container_width=True,
+                )
+
+                # Business segments -----------------
+
+                st.subheader(
+                    "Business Segments"
+                )
+
+                active_count = int(
+                    (
+                        predictions[
+                            "Segment"
+                        ]
+                        == "Active / High-Value Customers"
+                    ).sum()
+                )
+
+                inactive_count = int(
+                    (
+                        predictions[
+                            "Segment"
+                        ]
+                        == "Inactive / Low-Value Customers"
+                    ).sum()
+                )
+
+                segment_col1, segment_col2 = (
+                    st.columns(2)
+                )
+
+                with segment_col1:
+
+                    st.metric(
+                        "Active / High-Value Customers",
+                        f"{active_count:,}",
+                    )
+
+                with segment_col2:
+
+                    st.metric(
+                        "Inactive / Low-Value Customers",
+                        f"{inactive_count:,}",
+                    )
+
+                # Download results ------------------
+
+                st.subheader(
+                    "Download Results"
+                )
+
+                csv_data = (
+                    predictions.to_csv(
+                        index=False
+                    )
+                    .encode("utf-8")
+                )
+
+                st.download_button(
+                    label=(
+                        "Download Segmentation Results"
+                    ),
+                    data=csv_data,
+                    file_name=(
+                        "customer_segmentation_results.csv"
+                    ),
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+
+        except Exception as exc:
+
+            st.error(
+                "Failed to process the uploaded data."
+            )
+
+            st.exception(exc)
 
 
 # Footer ----------------------------------------------
