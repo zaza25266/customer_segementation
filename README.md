@@ -4,7 +4,7 @@ An end-to-end customer segmentation project on the **Online Retail II** dataset 
 
 The pipeline cleans transaction-level data, engineers customer-level behavioral features, evaluates multiple clustering algorithms, validates the selected model on a holdout set, and serves predictions through a Streamlit app backed by a model hosted on Hugging Face.
 
-**Live Demo:** https://customersegementation-t5s8rntqez9a2bdbahe2b8.streamlit.app/
+**Live Demo:** https://customersegementation-vpw49wdgaggri4zrndhdxj.streamlit.app/
 **Model:** https://huggingface.co/ZubairAli25266/customer_segementation
 
 ---
@@ -528,6 +528,6 @@ MLflow tracking, DVC data versioning, Great Expectations / data validation, Evid
 
 ## Links
 
-- **Live Demo:** https://customersegementation-t5s8rntqez9a2bdbahe2b8.streamlit.app/
+- **Live Demo:** https://customersegementation-vpw49wdgaggri4zrndhdxj.streamlit.app/
 - **GitHub:** https://github.com/zaza25266/customer_segementation
 - **Hugging Face Model:** https://huggingface.co/ZubairAli25266/customer_segementation
