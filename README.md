@@ -531,5 +531,3 @@ MLflow tracking, DVC data versioning, Great Expectations / data validation, Evid
 - **Live Demo:** https://customersegementation-t5s8rntqez9a2bdbahe2b8.streamlit.app/
 - **GitHub:** https://github.com/zaza25266/customer_segementation
 - **Hugging Face Model:** https://huggingface.co/ZubairAli25266/customer_segementation
-- **GitHub:** https://github.com/zaza25266/customer_segementation
-- **Hugging Face Model:** https://huggingface.co/ZubairAli25266/customer_segementation
