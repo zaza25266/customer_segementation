@@ -1,21 +1,31 @@
+import sys
+import os
 
-import sys, os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(
+    os.path.dirname(
+        os.path.dirname(
+            os.path.abspath(__file__)
+        )
+    )
+)
 
-from pathlib import Path
 import json
 
+import joblib
 import pandas as pd
 import streamlit as st
 from huggingface_hub import hf_hub_download
 
-from src.customer_segmentation.features.transformer import (
-    FEATURE_COLUMNS,
-)
-from src.customer_segmentation.models.pipeline import (
-    build_customer_segmentation_pipeline,
+from src.customer_segmentation.data.cleaner import (
+    clean_transactions,
 )
 
+from src.customer_segmentation.data.aggregator import (
+    aggregate_customer_features,
+)
+
+
+# Configuration ---------------------------------------
 
 HF_REPO_ID = "ZubairAli25266/customer_segementation"
 
@@ -27,77 +37,159 @@ METADATA_FILENAME = (
     "customer_segmentation_metadata_v2.json"
 )
 
+EXPECTED_COLUMNS = [
+    "Invoice",
+    "StockCode",
+    "Description",
+    "Quantity",
+    "InvoiceDate",
+    "Price",
+    "Customer ID",
+    "Country",
+]
+
+
+# Model loading ---------------------------------------
 
 @st.cache_resource
 def load_model():
+
     model_path = hf_hub_download(
         repo_id=HF_REPO_ID,
         filename=MODEL_FILENAME,
     )
-
-    import joblib
 
     return joblib.load(model_path)
 
 
 @st.cache_data
 def load_metadata():
+
     metadata_path = hf_hub_download(
         repo_id=HF_REPO_ID,
         filename=METADATA_FILENAME,
     )
 
-    with open(metadata_path, "r", encoding="utf-8") as file:
+    with open(
+        metadata_path,
+        "r",
+        encoding="utf-8",
+    ) as file:
         return json.load(file)
 
 
-def validate_input(features: dict) -> None:
-    for feature, value in features.items():
-        if value < 0:
-            raise ValueError(
-                f"{feature} cannot be negative."
-            )
+# Data validation -------------------------------------
 
-    if features["Frequency"] < 1:
+def validate_raw_data(
+    df: pd.DataFrame,
+) -> None:
+
+    missing_columns = [
+        column
+        for column in EXPECTED_COLUMNS
+        if column not in df.columns
+    ]
+
+    if missing_columns:
+
         raise ValueError(
-            "Frequency must be at least 1."
+            "Uploaded file is missing required "
+            f"columns: {missing_columns}"
         )
 
-    if features["Unique_Products"] < 1:
+
+# Feature engineering ---------------------------------
+
+def prepare_customer_features(
+    raw_data: pd.DataFrame,
+):
+
+    validate_raw_data(raw_data)
+
+    cleaned_data = clean_transactions(
+        raw_data
+    )
+
+    if cleaned_data.empty:
+
         raise ValueError(
-            "Unique Products must be at least 1."
+            "No valid transactions remain after "
+            "cleaning."
         )
 
+    customer_features = (
+        aggregate_customer_features(
+            cleaned_data
+        )
+    )
 
-def predict_segment(
+    if customer_features.empty:
+
+        raise ValueError(
+            "No customer records were created "
+            "from the uploaded data."
+        )
+
+    return (
+        cleaned_data,
+        customer_features,
+    )
+
+
+# Prediction ------------------------------------------
+
+def predict_customers(
     model,
     metadata: dict,
-    features: dict,
+    customer_features: pd.DataFrame,
 ):
-    validate_input(features)
 
-    input_df = pd.DataFrame(
-        [features],
-        columns=FEATURE_COLUMNS,
+    feature_columns = metadata["features"]
+
+    missing_features = [
+        feature
+        for feature in feature_columns
+        if feature not in customer_features.columns
+    ]
+
+    if missing_features:
+
+        raise ValueError(
+            "Required model features were not "
+            f"generated: {missing_features}"
+        )
+
+    prediction_input = (
+        customer_features[
+            feature_columns
+        ].copy()
     )
 
-    cluster_id = int(
-        model.predict(input_df)[0]
+    cluster_ids = model.predict(
+        prediction_input
     )
+
+    predictions = customer_features.copy()
+
+    predictions["Cluster"] = cluster_ids
 
     cluster_mapping = {
         int(cluster): label
         for cluster, label
-        in metadata["cluster_interpretation"].items()
+        in metadata[
+            "cluster_interpretation"
+        ].items()
     }
 
-    segment = cluster_mapping.get(
-        cluster_id,
-        "Unknown Segment",
+    predictions["Segment"] = (
+        predictions["Cluster"]
+        .map(cluster_mapping)
     )
 
-    return cluster_id, segment
+    return predictions
 
+
+# Page configuration ----------------------------------
 
 st.set_page_config(
     page_title="Customer Segmentation",
@@ -106,35 +198,55 @@ st.set_page_config(
 )
 
 
-st.title("Customer Segmentation")
+# Page header -----------------------------------------
+
+st.title(
+    "Customer Segmentation"
+)
+
 st.markdown(
     """
-    ### RFM-based Customer Segmentation
+    ### Customer Segmentation from Transaction Data
 
-    Predict whether a customer belongs to the
-    **Active / High-Value** or
-    **Inactive / Low-Value** segment using
-    behavioral purchasing features.
+    Upload raw transaction-level data using the
+    expected company data format.
+
+    The application automatically performs:
+
+    **Raw Transactions → Cleaning → Customer Aggregation
+    → Feature Engineering → Model Prediction → Segment**
     """
 )
 
 
+# Load model and metadata -----------------------------
+
 try:
+
     model = load_model()
+
     metadata = load_metadata()
 
 except Exception as exc:
+
     st.error(
         "Failed to load the model from Hugging Face."
     )
+
     st.exception(exc)
+
     st.stop()
 
 
-st.sidebar.header("Model Information")
+# Sidebar ---------------------------------------------
+
+st.sidebar.header(
+    "Model Information"
+)
 
 st.sidebar.write(
-    f"**Model:** {metadata.get('model', 'Unknown')}"
+    f"**Model:** "
+    f"{metadata.get('model', 'Unknown')}"
 )
 
 st.sidebar.write(
@@ -147,138 +259,351 @@ st.sidebar.write(
     f"{metadata.get('training_customers', 'Unknown')}"
 )
 
+st.sidebar.divider()
+
 st.sidebar.write(
-    "**Features:**"
+    "**Expected Raw Columns:**"
 )
 
-for feature in metadata.get("features", []):
-    st.sidebar.write(f"- {feature}")
+for column in EXPECTED_COLUMNS:
 
-
-st.header("Customer Information")
-
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    recency = st.number_input(
-        "Recency (days)",
-        min_value=0,
-        value=30,
-        step=1,
+    st.sidebar.write(
+        f"- {column}"
     )
 
-    frequency = st.number_input(
-        "Frequency (orders)",
-        min_value=1,
-        value=5,
-        step=1,
-    )
+st.sidebar.divider()
 
+st.sidebar.write(
+    "**Generated Model Features:**"
+)
 
-with col2:
-    monetary = st.number_input(
-        "Monetary (£)",
-        min_value=0.0,
-        value=1500.0,
-        step=50.0,
-    )
-
-    total_quantity = st.number_input(
-        "Total Quantity",
-        min_value=1,
-        value=500,
-        step=10,
-    )
-
-
-with col3:
-    unique_products = st.number_input(
-        "Unique Products",
-        min_value=1,
-        value=50,
-        step=1,
-    )
-
-    average_order_value = st.number_input(
-        "Average Order Value (£)",
-        min_value=0.0,
-        value=300.0,
-        step=10.0,
-    )
-
-
-features = {
-    "Recency": recency,
-    "Frequency": frequency,
-    "Monetary": monetary,
-    "Total_Quantity": total_quantity,
-    "Unique_Products": unique_products,
-    "Average_Order_Value": average_order_value,
-}
-
-
-if st.button(
-    "Predict Customer Segment",
-    type="primary",
-    use_container_width=True,
+for feature in metadata.get(
+    "features",
+    [],
 ):
+
+    st.sidebar.write(
+        f"- {feature}"
+    )
+
+
+# File upload -----------------------------------------
+
+st.header(
+    "Upload Transaction Data"
+)
+
+st.write(
+    "Upload a CSV containing raw transaction-level "
+    "data. Customer-level features will be generated "
+    "automatically."
+)
+
+uploaded_file = st.file_uploader(
+    "Upload CSV",
+    type=["csv"],
+)
+
+
+# Process uploaded data -------------------------------
+
+if uploaded_file is not None:
 
     try:
 
-        cluster_id, segment = predict_segment(
-            model=model,
-            metadata=metadata,
-            features=features,
+        raw_data = pd.read_csv(
+            uploaded_file
         )
 
-        st.divider()
+        validate_raw_data(
+            raw_data
+        )
 
-        st.subheader("Prediction")
+        # Raw data preview ---------------------------
 
-        result_col1, result_col2 = st.columns(2)
+        st.subheader(
+            "Uploaded Data"
+        )
 
-        with result_col1:
+        raw_col1, raw_col2 = st.columns(2)
+
+        with raw_col1:
+
             st.metric(
-                "Cluster",
-                cluster_id,
+                "Raw Transactions",
+                f"{len(raw_data):,}",
             )
 
-        with result_col2:
+        with raw_col2:
+
             st.metric(
-                "Customer Segment",
-                segment,
+                "Raw Columns",
+                f"{len(raw_data.columns):,}",
             )
+
+        with st.expander(
+            "Preview Raw Transaction Data"
+        ):
+
+            st.dataframe(
+                raw_data.head(20),
+                hide_index=True,
+                use_container_width=True,
+            )
+
+
+        # Cleaning and feature engineering -----------
+
+        with st.spinner(
+            "Cleaning transactions and generating "
+            "customer features..."
+        ):
+
+            (
+                cleaned_data,
+                customer_features,
+            ) = prepare_customer_features(
+                raw_data
+            )
+
 
         st.success(
-            f"Customer belongs to: **{segment}**"
+            "Transaction preprocessing completed."
         )
 
-        st.subheader("Input Features")
 
-        input_display = pd.DataFrame(
-            {
-                "Feature": list(features.keys()),
-                "Value": list(features.values()),
-            }
+        # Data summary -------------------------------
+
+        st.subheader(
+            "Data Summary"
         )
 
-        st.dataframe(
-            input_display,
-            hide_index=True,
+        summary_col1, summary_col2 = (
+            st.columns(2)
+        )
+
+        with summary_col1:
+
+            st.metric(
+                "Valid Transactions",
+                f"{len(cleaned_data):,}",
+            )
+
+        with summary_col2:
+
+            st.metric(
+                "Customers",
+                f"{len(customer_features):,}",
+            )
+
+
+        # Prediction ---------------------------------
+
+        if st.button(
+            "Predict Customer Segments",
+            type="primary",
             use_container_width=True,
-        )
+        ):
+
+            with st.spinner(
+                "Predicting customer segments..."
+            ):
+
+                predictions = predict_customers(
+                    model=model,
+                    metadata=metadata,
+                    customer_features=(
+                        customer_features
+                    ),
+                )
+
+
+            st.success(
+                "Customer segmentation completed."
+            )
+
+
+            # Segment distribution ------------------
+
+            st.subheader(
+                "Segment Distribution"
+            )
+
+            segment_counts = (
+                predictions[
+                    "Segment"
+                ]
+                .value_counts()
+                .rename(
+                    "Customers"
+                )
+                .reset_index()
+            )
+
+            st.dataframe(
+                segment_counts,
+                hide_index=True,
+                use_container_width=True,
+            )
+
+
+            # Generated features --------------------
+
+            st.subheader(
+                "Generated Customer Features"
+            )
+
+            st.write(
+                "These features were automatically "
+                "created from the uploaded raw "
+                "transaction data and used by the "
+                "model for prediction."
+            )
+
+            generated_feature_columns = [
+                "Customer ID",
+                "Recency",
+                "Frequency",
+                "Monetary",
+                "Total_Quantity",
+                "Unique_Products",
+                "Average_Order_Value",
+            ]
+
+            st.dataframe(
+                predictions[
+                    generated_feature_columns
+                ],
+                hide_index=True,
+                use_container_width=True,
+            )
+
+
+            # Prediction results --------------------
+
+            st.subheader(
+                "Prediction Results"
+            )
+
+            result_columns = [
+                "Customer ID",
+                "Recency",
+                "Frequency",
+                "Monetary",
+                "Total_Quantity",
+                "Unique_Products",
+                "Average_Order_Value",
+                "Cluster",
+                "Segment",
+            ]
+
+            st.dataframe(
+                predictions[
+                    result_columns
+                ],
+                hide_index=True,
+                use_container_width=True,
+            )
+
+
+            # Segment metrics -----------------------
+
+            st.subheader(
+                "Business Segments"
+            )
+
+            active_count = int(
+                (
+                    predictions["Segment"]
+                    == "Active / High-Value Customers"
+                ).sum()
+            )
+
+            inactive_count = int(
+                (
+                    predictions["Segment"]
+                    == "Inactive / Low-Value Customers"
+                ).sum()
+            )
+
+            segment_col1, segment_col2 = (
+                st.columns(2)
+            )
+
+            with segment_col1:
+
+                st.metric(
+                    "Active / High-Value Customers",
+                    f"{active_count:,}",
+                )
+
+                st.write(
+                    "Customers with stronger recent "
+                    "activity and higher purchasing "
+                    "value."
+                )
+
+            with segment_col2:
+
+                st.metric(
+                    "Inactive / Low-Value Customers",
+                    f"{inactive_count:,}",
+                )
+
+                st.write(
+                    "Customers with lower purchasing "
+                    "activity and value."
+                )
+
+
+            # Download results ----------------------
+
+            st.subheader(
+                "Download Results"
+            )
+
+            csv_data = (
+                predictions.to_csv(
+                    index=False
+                )
+                .encode("utf-8")
+            )
+
+            st.download_button(
+                label=(
+                    "Download Segmentation Results"
+                ),
+                data=csv_data,
+                file_name=(
+                    "customer_segmentation_results.csv"
+                ),
+                mime="text/csv",
+                use_container_width=True,
+            )
+
 
     except Exception as exc:
+
         st.error(
-            "Prediction failed."
+            "Failed to process the uploaded data."
         )
+
         st.exception(exc)
 
+
+else:
+
+    st.info(
+        "Upload a CSV file containing raw "
+        "transaction data to begin."
+    )
+
+
+# Footer ----------------------------------------------
 
 st.divider()
 
 st.caption(
     "Model trained on the Online Retail II dataset. "
-    "Model artifacts are loaded from Hugging Face."
+    "Model and metadata are loaded from Hugging Face."
 )
